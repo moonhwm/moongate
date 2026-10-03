@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>K3 座席之门 · 月门</title>
+<style>
+  :root{ --ink:#e8e6df; --dim:#8a887f; --accent:#c8b06a; --panel:rgba(10,11,18,.72); }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#05060a;font-family:"Songti SC","Noto Serif SC",serif;color:var(--ink)}
+  body.day{background:#e9e4d8;color:#2b2a26}
+  #stage{position:fixed;inset:0;touch-action:none;cursor:grab}
+  #stage:active{cursor:grabbing}
+  canvas{display:block}
+
+  #prologue{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:#000;transition:opacity .9s ease}
+  #prologue.gone{opacity:0;pointer-events:none}
+  #proCv{width:100%;height:100%}
+  #proMeta{position:absolute;left:0;right:0;bottom:8vh;text-align:center;pointer-events:none}
+  #proTitle{font-size:clamp(20px,3.4vw,34px);letter-spacing:.35em;text-indent:.35em}
+  #proCredit{margin-top:12px;font-size:12px;color:var(--dim);letter-spacing:.15em}
+  #proSkip{position:absolute;right:4vw;bottom:5vh;pointer-events:auto;background:none;border:1px solid rgba(232,230,223,.35);color:var(--ink);padding:8px 18px;font-size:12px;letter-spacing:.2em;cursor:pointer;font-family:inherit}
+  #proSkip:hover{border-color:var(--accent);color:var(--accent)}
+  #proBar{position:absolute;top:0;left:0;height:2px;background:var(--accent);width:0%}
+
+  #gate{position:fixed;inset:0;z-index:10;pointer-events:none;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:10vh;text-align:center}
+  #gate h1{font-size:clamp(24px,3.6vw,44px);font-weight:400;letter-spacing:.55em;text-indent:.55em;text-shadow:0 1px 22px rgba(0,0,0,.75)}
+  #gate .sub{margin-top:14px;font-size:clamp(11px,1.2vw,13px);color:#b9b6ab;letter-spacing:.28em;text-shadow:0 1px 10px rgba(0,0,0,.7)}
+  body.day #gate h1{text-shadow:0 1px 18px rgba(255,255,255,.85)}
+  body.day #gate .sub{color:#57544a;text-shadow:0 1px 10px rgba(255,255,255,.8)}
+  #enter{pointer-events:auto;margin-top:5vh;background:rgba(0,0,0,.18);border:1px solid currentColor;color:inherit;padding:11px 42px;font-size:13px;letter-spacing:.45em;text-indent:.45em;cursor:pointer;font-family:inherit;opacity:.85;transition:all .3s;backdrop-filter:blur(3px)}
+  body.day #enter{background:rgba(255,255,255,.28)}
+  #enter:hover{opacity:1;border-color:var(--accent);color:var(--accent)}
+
+  #mgDnStat{position:fixed;left:16px;bottom:16px;z-index:20;pointer-events:auto;background:var(--panel);backdrop-filter:blur(8px);border:1px solid rgba(200,176,106,.28);padding:10px 14px;font-size:11px;line-height:1.8;letter-spacing:.08em;max-width:min(360px,86vw)}
+  body.day #mgDnStat{background:rgba(255,253,246,.82);color:#3a382f}
+  #mgDnStat .live{display:inline-block;width:7px;height:7px;border-radius:50%;background:#7ec87e;margin-right:6px;animation:blink 2s infinite}
+  @keyframes blink{50%{opacity:.25}}
+  #mgDnStat a{color:var(--accent);text-decoration:none;border-bottom:1px dotted}
+  #mgDnStat .row{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  #hint{position:fixed;right:16px;bottom:16px;z-index:20;font-size:11px;color:var(--dim);letter-spacing:.15em;text-align:right;line-height:2}
+  body.day #hint{color:#7a766a}
+  #credit{position:fixed;left:16px;top:14px;z-index:20;font-size:10px;color:rgba(138,136,127,.7);letter-spacing:.12em;line-height:1.9}
+  body.day #credit{color:rgba(90,87,76,.75)}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div id="prologue">
+  <canvas id="proCv"></canvas>
+  <div id="proBar"></div>
+  <div id="proMeta">
+    <div id="proTitle"></div>
+    <div id="proCredit"></div>
+  </div>
+  <button id="proSkip">跳 过</button>
+</div>
+
+<div id="gate">
+  <h1>月　门</h1>
+  <div class="sub">K3 座席 · 自治游乐场入口 — 拖拽旋转 · 滚轮远行</div>
+  <button id="enter">入 场</button>
+</div>
+
+<div id="mgDnStat"></div>
+<div id="hint">任意处拖拽：全向翻滚<br>滚轮 / 双指：缩放至星云远端</div>
+<div id="credit">月面：NASA SVS CGI Moon Kit（LROC 彩色镶嵌 + LOLA 位移，公有领域，svs.gsfc.nasa.gov/4720）<br>深空穹顶：韦伯空间望远镜首张深场 SMACS 0723（NASA/ESA/CSA/STScI，webbtelescope.org）<br>参照：国家天文科学数据中心 · 嫦娥二号 7m 全月影像图 · 序章：着色器实时演算（非实拍/非AI视频）</div>
+
+<script src="./assets/vendor/suncalc.js"></script>
+<script type="importmap">{ "imports": { "three": "./assets/vendor/three.module.js" } }</script>
+<script type="module">
+import * as THREE from 'three';
+
+/* 段2 · 授时双相：三级回退判决链 */
+const GEO = { lat: 39.9042, lon: 116.4074, src: '兜底·北京（浏览器定位未请求）' };
+function phaseOf(now){
+  try{
+    const mt = SunCalc.getMoonTimes(now, GEO.lat, GEO.lon);
+    if (mt.rise && mt.set){
+      const up = now >= mt.rise && now <= mt.set;
+      return { phase: up ? 'night' : 'day', basis: `月出 ${fmt(mt.rise)} / 月落 ${fmt(mt.set)}`,
+               engine: 'SunCalc 月出月落（一级）', next: up ? mt.set : (mt.rise > now ? mt.rise : nextRise(now)) };
+    }
+    const st = SunCalc.getTimes(now, GEO.lat, GEO.lon);
+    if (st.sunrise && st.sunset){
+      const day = now >= st.sunrise && now <= st.sunset;
+      return { phase: day ? 'day' : 'night', basis: `日出 ${fmt(st.sunrise)} / 日落 ${fmt(st.sunset)}`,
+               engine: 'SunCalc 日出日落（二级回退）', next: day ? st.sunset : st.sunrise };
+    }
+  }catch(e){}
+  const h = now.getHours();
+  const day = h >= 6 && h < 18;
+  return { phase: day ? 'day' : 'night', basis: `固定时段 [06:00, 18:00)`,
+           engine: '兜底时段（三级回退）', next: new Date(now.getFullYear(),now.getMonth(),now.getDate(), day?18:24, 0, 0) };
+}
+function fmt(d){ return d.toTimeString().slice(0,5); }
+function nextRise(now){ const t=new Date(now.getTime()+3600e3); const mt=SunCalc.getMoonTimes(t,GEO.lat,GEO.lon); return mt.rise||t; }
+
+/* 段1 · 场景：月体 + 星云穹顶远端语义 */
+const stage = document.getElementById('stage');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38, innerWidth/innerHeight, 0.1, 400);
+camera.position.set(0, 0, 8);
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+stage.appendChild(renderer.domElement);
+
+const keyLight = new THREE.DirectionalLight(0xfff2dd, 2.6); keyLight.position.set(4, 2, 5);
+const rimLight = new THREE.DirectionalLight(0x7a9cc8, 1.1); rimLight.position.set(-5, -1, -4);
+const amb = new THREE.AmbientLight(0x223, 0.5);
+scene.add(keyLight, rimLight, amb);
+
+/* 真实素材：NASA SVS CGI Moon Kit —— LROC 彩色镶嵌（公有领域） + LOLA 位移 */
+const texLoader = new THREE.TextureLoader();
+const moonTex = texLoader.load('./assets/moon_color_2k.jpg');
+moonTex.colorSpace = THREE.SRGBColorSpace;
+const moonDisp = texLoader.load('./assets/moon_disp_1k.jpg');
+
+const moonUniforms = { u_daybg:{value:0.0}, u_time:{value:0.0}, u_map:{value:moonTex}, u_bump:{value:moonDisp} };
+const moonMat = new THREE.ShaderMaterial({
+  uniforms: moonUniforms,
+  vertexShader: `
+    varying vec3 vN; varying vec2 vUv;
+    void main(){ vN=normalize(normalMatrix*normal); vUv=uv;
+      gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `
+    varying vec3 vN; varying vec2 vUv;
+    uniform sampler2D u_map; uniform sampler2D u_bump;
+    uniform float u_daybg; uniform float u_time;
+    void main(){
+      vec3 tex = texture2D(u_map, vUv).rgb;            // LROC 真月面
+      float h = texture2D(u_bump, vUv).r;              // LOLA 高程
+      vec3 L = normalize(vec3(0.55,0.3,0.75));
+      float lit = clamp(dot(vN,L),0.0,1.0);
+      float limb = clamp(dot(vN, vec3(0.0,0.0,1.0)),0.0,1.0);  // 临边昏暗
+      vec3 base = tex*(0.85 + 0.40*h);                 // 高程明暗
+      vec3 nightCol = base*(0.10 + lit*1.15)*(0.35+0.65*limb);
+      // 段5 · 昼相柔化：着色器级混入暖乳白底（克制配比，保真实纹理可见）
+      vec3 dayCol = mix(clamp(nightCol*1.45,0.0,1.0), vec3(0.94,0.92,0.87), 0.24+0.12*(1.0-lit));
+      vec3 col = mix(nightCol, dayCol, u_daybg);
+      gl_FragColor = vec4(col,1.0);
+    }`
+});
+const moon = new THREE.Mesh(new THREE.SphereGeometry(2, 96, 96), moonMat);
+scene.add(moon);
+
+/* 深空穹顶：韦伯首张深场 SMACS 0723（NASA/ESA/CSA/STScI 公开影像） */
+const nebTex = texLoader.load('./assets/webb_deepfield.jpg');
+nebTex.colorSpace = THREE.SRGBColorSpace;
+const nebula = new THREE.Mesh(
+  new THREE.SphereGeometry(180, 48, 48),
+  new THREE.MeshBasicMaterial({ map: nebTex, side: THREE.BackSide, transparent:true, opacity:0.0, depthWrite:false })
+);
+scene.add(nebula);
+
+/* 段4 · 全域自由交互：无命中门，全向翻滚 */
+const orbit = { yaw: 0.4, pitch: 0.15, roll: 0.0 };
+const CAM_MIN = 3.4, CAM_MAX = 60;
+let camDist = 8;
+let dragging=false, px=0, py=0;
+const el = renderer.domElement;
+el.addEventListener('pointerdown', e => { dragging=true; px=e.clientX; py=e.clientY; el.setPointerCapture(e.pointerId); });
+el.addEventListener('pointerup', () => dragging=false);
+el.addEventListener('pointermove', e => {
+  if(!dragging) return;
+  const dx=e.clientX-px, dy=e.clientY-py; px=e.clientX; py=e.clientY;
+  orbit.yaw -= dx*0.006;
+  orbit.pitch += dy*0.006;
+  orbit.roll = Math.sin(orbit.pitch)*0.15;
+});
+el.addEventListener('wheel', e => { e.preventDefault(); camDist=clamp(camDist*(1+e.deltaY*0.0011),CAM_MIN,CAM_MAX); }, { passive:false });
+let pinchD=0;
+el.addEventListener('touchmove', e => {
+  if(e.touches.length===2){
+    const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+    if(pinchD) camDist=clamp(camDist*pinchD/d,CAM_MIN,CAM_MAX);
+    pinchD=d;
+  }
+}, { passive:true });
+el.addEventListener('touchend', () => pinchD=0);
+function clamp(v,a,b){ return Math.min(b,Math.max(a,v)); }
+
+/* 段3 · 序章池：着色器实时演算 ×2，反重复 */
+const PROLOGUES = [
+  { id:'starbirth', src:'shader://starbirth', title:'星 云 序', credit:'着色器实时演算 · 非实拍/非AI视频', dur:9000,
+    frag:`vec2 uv=vUv*2.0-1.0; float t=u_t*0.4; float n=0.0;
+      for(int i=0;i<4;i++){ uv*=1.35; n+=sin(uv.x*3.0+t+float(i))*sin(uv.y*3.0-t)*0.25; }
+      vec3 c=mix(vec3(0.02,0.03,0.08), vec3(0.45,0.35,0.6), n*0.5+0.5);
+      c+=vec3(0.8,0.7,0.5)*pow(max(0.0,1.0-length(vUv*2.0-1.0)),3.0)*0.4*sin(t*0.7);
+      gl_FragColor=vec4(c,1.0);` },
+  { id:'moonrise', src:'shader://moonrise', title:'月 出 序', credit:'着色器实时演算 · 非实拍/非AI视频', dur:9000,
+    frag:`vec2 uv=vUv; float t=u_t;
+      float m=smoothstep(0.30,0.29,distance(uv,vec2(0.5,0.32+t*0.02)));
+      vec3 c=mix(vec3(0.03,0.04,0.10), vec3(0.10,0.12,0.22), uv.y);
+      c=mix(c, vec3(0.86,0.83,0.74), m);
+      float stars=step(0.998, fract(sin(dot(floor(uv*220.0),vec2(12.9,78.2)))*43758.5));
+      c+=stars*(1.0-m)*(0.5+0.5*sin(t*3.0+uv.x*40.0))*0.6;
+      gl_FragColor=vec4(c,1.0);` },
+];
+const proCv = document.getElementById('proCv');
+const gl = proCv.getContext('webgl');
+let proRAF=0, proDone=false;
+function pickPrologue(){
+  const last = localStorage.getItem('mg_last_pro');
+  let pool = PROLOGUES.filter(p => p.id!==last);
+  if(!pool.length) pool = PROLOGUES;
+  const pick = pool[Math.floor(Math.random()*pool.length)];
+  localStorage.setItem('mg_last_pro', pick.id);
+  return pick;
+}
+function runPrologue(p){
+  document.getElementById('proTitle').textContent = p.title;
+  document.getElementById('proCredit').textContent = p.credit + ` · 序章池 ${PROLOGUES.length} 支在位`;
+  const vs=`attribute vec2 a; varying vec2 vUv; void main(){ vUv=a*0.5+0.5; gl_Position=vec4(a,0.,1.); }`;
+  const fs=`precision mediump float; varying vec2 vUv; uniform float u_t; void main(){ ${p.frag} }`;
+  function sh(t,s){ const x=gl.createShader(t); gl.shaderSource(x,s); gl.compileShader(x); return x; }
+  const prog=gl.createProgram();
+  gl.attachShader(prog,sh(gl.VERTEX_SHADER,vs));
+  gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fs));
+  gl.linkProgram(prog); gl.useProgram(prog);
+  const buf=gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+  const loc=gl.getAttribLocation(prog,'a');
+  gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+  const uT=gl.getUniformLocation(prog,'u_t');
+  proCv.width=innerWidth; proCv.height=innerHeight;
+  gl.viewport(0,0,proCv.width,proCv.height);
+  const t0=performance.now(); const bar=document.getElementById('proBar');
+  (function frame(){
+    if(proDone) return;
+    const t=(performance.now()-t0)/1000;
+    gl.uniform1f(uT,t); gl.drawArrays(gl.TRIANGLES,0,3);
+    bar.style.width=Math.min(100,t/(p.dur/1000)*100)+'%';
+    if(t*1000>=p.dur) return endPrologue();
+    proRAF=requestAnimationFrame(frame);
+  })();
+}
+function endPrologue(){
+  if(proDone) return; proDone=true;
+  cancelAnimationFrame(proRAF);
+  document.getElementById('prologue').classList.add('gone');
+}
+document.getElementById('proSkip').addEventListener('click', endPrologue);
+const currentPro = pickPrologue();
+if(gl) runPrologue(currentPro); else endPrologue();
+
+/* 徽章四件同屏 */
+let phase = phaseOf(new Date());
+function renderBadge(){
+  document.getElementById('mgDnStat').innerHTML =
+    `<div class="row"><span class="live"></span>${phase.phase==='night'?'夜相 · 月值更':'昼相 · 日值更'}</div>
+     <div class="row">判决依据：${phase.basis}</div>
+     <div class="row">引擎：${phase.engine} · 定位源：${GEO.src}</div>
+     <div class="row">下次重算：${fmt(phase.next)} · <a href="https://github.com/mourner/suncalc" target="_blank" rel="noopener">出处：SunCalc (BSD-2)</a></div>`;
+  document.body.classList.toggle('day', phase.phase==='day');
+}
+renderBadge();
+setInterval(()=>{ const n=phaseOf(new Date()); if(n.phase!==phase.phase||+n.next!==+phase.next){ phase=n; renderBadge(); } },30000);
+
+document.getElementById('enter').addEventListener('click', () => {
+  const g=document.getElementById('gate');
+  g.style.transition='opacity 1.2s'; g.style.opacity='0';
+  setTimeout(()=>g.style.display='none',1300);
+});
+
+/* 主循环 */
+function tick(t){
+  requestAnimationFrame(tick);
+  moonUniforms.u_time.value=t/1000;
+  const dayK = phase.phase==='day'?1:0;
+  moonUniforms.u_daybg.value += (dayK-moonUniforms.u_daybg.value)*0.03;
+  moon.rotation.set(orbit.pitch, orbit.yaw, orbit.roll, 'YXZ');
+  camera.position.set(0,0,camDist);
+  camera.lookAt(0,0,0);
+  nebula.material.opacity = clamp((camDist-14)/(CAM_MAX-14),0,1);
+  keyLight.intensity = phase.phase==='day'?1.6:2.6;
+  renderer.render(scene,camera);
+}
+requestAnimationFrame(tick);
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+
+/* 段6 · QA 钩子 */
+window.__gate = {
+  get state(){ return { phase:phase.phase, prologueDone:proDone, prologueId:currentPro.id }; },
+  get cam(){ return camDist; },
+  get orbit(){ return { ...orbit }; },
+  get phase(){ return phase.phase; },
+  get phaseBasis(){ return phase.basis; },
+  get nebula(){ return nebula.material.opacity; },
+  get pro(){ return { pool:PROLOGUES.length, current:currentPro.id, antiRepeat:true }; },
+  get texturesOk(){ return nebTex.image ? nebTex.image.width>0 : false; },
+  get daybg(){ return moonUniforms.u_daybg.value; },
+  skipPrologue: endPrologue,
+  forcePhase: p => { phase.phase = p; },   /* QA 专用：强制昼/夜相 */
+};
+</script>
+</body>
+</html>
